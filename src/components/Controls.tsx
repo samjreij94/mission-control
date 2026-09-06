@@ -1,5 +1,8 @@
 import type { MissionTarget, Telemetry } from '../physics'
 
+/** Treat remaining ΔV below this (m/s) as depleted for UI gating. */
+const DV_DEPLETED_EPS_MS = 1
+
 interface Props {
   telemetry: Telemetry
   target: MissionTarget
@@ -40,6 +43,10 @@ export function Controls({
   const canIgnite = phase === 'pad' && armed
   const canBurn = phase === 'coast' || phase === 'orbit' || phase === 'ascent' || phase === 'transfer'
   const canChangeDest = phase === 'pad' || failed || ended
+
+  const dvRemaining = telemetry.deltaVRemainingMs ?? 0
+  const dvDepleted = dvRemaining < DV_DEPLETED_EPS_MS
+  const canDoBurn = !dvDepleted
 
   return (
     <section className="controls" aria-label="Launch controls">
@@ -118,10 +125,24 @@ export function Controls({
 
         {canBurn && phase !== 'ascent' && !ended && (
           <>
-            <button type="button" className="btn burn" onClick={() => onBurn(100)}>
+            <button
+              type="button"
+              className="btn burn"
+              onClick={() => onBurn(100)}
+              disabled={!canDoBurn}
+              aria-disabled={!canDoBurn}
+              title={dvDepleted ? 'No ΔV remaining' : undefined}
+            >
               ΔV 100
             </button>
-            <button type="button" className="btn burn" onClick={() => onBurn(300)}>
+            <button
+              type="button"
+              className="btn burn"
+              onClick={() => onBurn(300)}
+              disabled={!canDoBurn}
+              aria-disabled={!canDoBurn}
+              title={dvDepleted ? 'No ΔV remaining' : undefined}
+            >
               ΔV 300
             </button>
             {target === 'MARS_TRANSFER' && (
@@ -129,14 +150,29 @@ export function Controls({
                 type="button"
                 className="btn burn primary"
                 onClick={() => onBurn(tmiDv)}
+                disabled={!canDoBurn}
+                aria-disabled={!canDoBurn}
+                title={dvDepleted ? 'No ΔV remaining' : undefined}
               >
                 TMI {Math.round(tmiDv)}
               </button>
             )}
             {target === 'LEO' && (
-              <button type="button" className="btn burn primary" onClick={() => onBurn(500)}>
+              <button
+                type="button"
+                className="btn burn primary"
+                onClick={() => onBurn(500)}
+                disabled={!canDoBurn}
+                aria-disabled={!canDoBurn}
+                title={dvDepleted ? 'No ΔV remaining' : undefined}
+              >
                 ΔV 500
               </button>
+            )}
+            {dvDepleted && (
+              <div className="burn-gate-hint" role="status">
+                No ΔV remaining
+              </div>
             )}
           </>
         )}

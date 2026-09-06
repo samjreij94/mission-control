@@ -431,6 +431,13 @@ input {
   border-color: #7af0ff;
 }
 
+.btn.burn.primary:disabled {
+  background: var(--bg-elevated);
+  color: var(--cyan);
+  border-color: rgba(0, 229, 255, 0.2);
+  box-shadow: none;
+}
+
 .btn.reset {
   grid-column: 1 / -1;
   color: var(--metal);
@@ -442,6 +449,15 @@ input {
   font-size: 10px;
   letter-spacing: 0.14em;
   color: var(--metal);
+  padding: 4px 0 0;
+}
+
+.burn-gate-hint {
+  grid-column: 1 / -1;
+  text-align: center;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--amber);
   padding: 4px 0 0;
 }
 

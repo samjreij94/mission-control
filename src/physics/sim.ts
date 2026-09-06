@@ -46,6 +46,17 @@ function clamp(x: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, x));
 }
 
+/** Apoapsis altitude (m) that triggers ascent autopilot MECO (same gate as scripted tests). */
+const AUTOPILOT_MECO_APO_M = 220_000;
+/** Minimum altitude (m) for autopilot MECO (above dense atmosphere). */
+const AUTOPILOT_MECO_ALT_M = 90_000;
+/**
+ * Minimum remaining Δv (m/s) required to auto-MECO — circularization reserve.
+ * Stock vehicle hits the apo/alt gate with ~1.0–1.1 km/s left; 800 leaves margin
+ * for UI ΔV 100/300/500 burns while still firing early enough to avoid dry-out.
+ */
+const AUTOPILOT_MECO_DV_RESERVE_MS = 800;
+
 const DEFAULT_VEHICLE: Vehicle = {
   wetMassKg: DEFAULT_WET_MASS,
   dryMassKg: DEFAULT_DRY_MASS,
@@ -437,6 +448,26 @@ class Sim implements SimAPI {
 
     const newSpeed = Math.hypot(s.vr, s.vt);
     recordTraj(s, newSpeed);
+
+
+    // Ascent autopilot MECO (UI hold-100% path): once apo is parking-capable and we
+    // still have circularization Δv, cut engines so burn() controls unlock with margin.
+    // Same apo/alt gate as scripted stock tests; physics owns MECO so QC need not press it.
+    if (s.phase === 'ascent' && s.enginesOn && s.throttle > 0) {
+      const { apo } = orbitalElements(s);
+      const apoAlt = Number.isFinite(apo) ? apo - R_EARTH : 0;
+      const altNow = altitudeFromRadius(s.r);
+      if (
+        apoAlt >= AUTOPILOT_MECO_APO_M &&
+        altNow > AUTOPILOT_MECO_ALT_M &&
+        remainingDeltaV(s) >= AUTOPILOT_MECO_DV_RESERVE_MS
+      ) {
+        s.throttle = 0;
+        s.enginesOn = false;
+        s.phase = 'coast';
+        s.message = 'Autopilot MECO — coast & circularize with ΔV burns.';
+      }
+    }
 
     // Coast/ascent → orbit when elements look good and not thrusting
     if ((s.phase === 'coast' || s.phase === 'ascent') && !s.enginesOn && checkLeoOrbit(s)) {

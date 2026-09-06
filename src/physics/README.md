@@ -41,6 +41,24 @@ debits remaining propellant (not a full n-body SOI ephemeris).
   leaves peri deeply negative and wastes circularization Δv. The 2→80 km program keeps
   peri recoverable while still clearing the dense atmosphere nearer vertical.
 
+
+### Ascent autopilot MECO
+
+While `phase === 'ascent'`, engines on, and `throttle > 0`, after each integrated step
+if **both**:
+
+1. `(apoapsisM ?? 0) ≥ 220 km` and `altitudeM > 90 km` (same gate as the scripted stock tests), and
+2. `remaining Δv ≥ 800 m/s` (circularization reserve),
+
+then physics auto-MECO: `throttle = 0`, `enginesOn = false`, `phase = 'coast'`, with a
+message like `Autopilot MECO — coast & circularize with ΔV burns.`
+
+This lets the UI path ARM → IGNITE → hold 100% reach coast with burn buttons unlocked
+and Δv left for circularization — players who never press MECO no longer burn to dry
+(apo ~3.5 Mm / peri ~82 km). Manual `setThrottle(0)` / MECO button still works the same.
+Autopilot fires whenever `throttle > 0` at the gate (not only at full throttle) so QC
+cannot overshoot past the reserve.
+
 ## Constants (sources)
 
 - MU_EARTH = 3.986004418e14 m^3/s^2 (IAU / WGS-84 GM)
@@ -73,4 +91,5 @@ debits remaining propellant (not a full n-body SOI ephemeris).
 
 Package script test runs Vitest over src/physics/*.test.ts.
 Covers rocket identity, LEO speed, Hohmann +/-1%, SimAPI including stock LEO / Mars
-ascent integration and dry burn no-op.
+ascent integration, dry burn no-op, and browser-faithful UI paths (hold 100% throttle
+with no manual MECO — autopilot coast then ΔV 100/300/500 burns).

@@ -1,4 +1,4 @@
-import type { Telemetry } from '../physics/simApi'
+import type { Telemetry } from '../physics'
 
 interface Props {
   telemetry: Telemetry
@@ -32,8 +32,15 @@ function fmtQ(pa: number): string {
 }
 
 export function TelemetryPanel({ telemetry: t }: Props) {
-  const phaseClass =
-    t.phase === 'success' ? 'phase-success' : t.phase === 'fail' ? 'phase-fail' : 'phase-active'
+  const isSuccess =
+    (t.phase === 'orbit' || t.phase === 'transfer') &&
+    !!t.message &&
+    (t.message.includes('SUCCESS') || t.message.includes('arrival') || t.message.includes('TMI'))
+  const isFail = t.phase === 'failed'
+  const phaseClass = isSuccess ? 'phase-success' : isFail ? 'phase-fail' : 'phase-active'
+  const failReason = isFail
+    ? (t.message?.replace(/^FAILURE:\s*/i, '') ?? 'Unknown failure')
+    : undefined
 
   return (
     <section className="telemetry" aria-label="Telemetry">
@@ -43,13 +50,23 @@ export function TelemetryPanel({ telemetry: t }: Props) {
         <span className="phase-time">T+{t.t.toFixed(1)}s</span>
       </div>
 
+      {t.message && (
+        <div className="telem-message" role="status">
+          {t.message}
+        </div>
+      )}
+
       <div className="telem-grid">
         <TelemCell label="ALT" value={fmtAlt(t.altitudeM)} accent="cyan" />
-        <TelemCell label="VEL" value={fmtVel(t.velocityMs)} accent="cyan" />
-        <TelemCell label="PROP" value={fmtMass(t.propellantKg)} accent="amber" />
-        <TelemCell label="DYN Q" value={fmtQ(t.dynamicPressurePa)} accent="amber" />
-        <TelemCell label="ΔV USED" value={fmtDv(t.deltaVSpentMs)} accent="cyan" />
-        <TelemCell label="ΔV LEFT" value={fmtDv(t.deltaVRemainingMs)} accent="amber" />
+        <TelemCell label="VEL" value={fmtVel(t.speedMs)} accent="cyan" />
+        <TelemCell label="MASS" value={fmtMass(t.massKg)} accent="amber" />
+        <TelemCell label="DYN Q" value={fmtQ(t.qPa)} accent="amber" />
+        <TelemCell label="ΔV USED" value={fmtDv(t.deltaVUsedMs)} accent="cyan" />
+        <TelemCell
+          label="ΔV LEFT"
+          value={fmtDv(t.deltaVRemainingMs ?? 0)}
+          accent="amber"
+        />
         {t.apoapsisM != null && (
           <TelemCell label="APO" value={fmtAlt(t.apoapsisM)} accent="cyan" />
         )}
@@ -58,17 +75,17 @@ export function TelemetryPanel({ telemetry: t }: Props) {
         )}
       </div>
 
-      {(t.phase === 'success' || t.phase === 'fail') && (
-        <div className={`end-state ${t.phase === 'success' ? 'ok' : 'bad'}`} role="status">
-          {t.phase === 'success' ? (
+      {(isSuccess || isFail) && (
+        <div className={`end-state ${isSuccess ? 'ok' : 'bad'}`} role="status">
+          {isSuccess ? (
             <>
               <strong>MISSION SUCCESS</strong>
-              <span>Orbital objectives complete</span>
+              <span>{t.message}</span>
             </>
           ) : (
             <>
               <strong>MISSION FAILED</strong>
-              <span>{t.failReason ?? 'Unknown failure'}</span>
+              <span>{failReason}</span>
             </>
           )}
         </div>

@@ -1,24 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import {
-  createSimAPI,
-  type MissionTarget,
-  type SimAPI,
-  type Telemetry,
-  type TrajectoryPoint,
-} from '../physics/simApi'
+import { createSim, hohmannTransfer } from '../physics'
+import type { MissionTarget, SimAPI, Telemetry, TrajectoryPoint } from '../physics'
 
 export function useSimLoop() {
   const simRef = useRef<SimAPI | null>(null)
   if (!simRef.current) {
-    simRef.current = createSimAPI()
-    simRef.current.reset('leo')
+    simRef.current = createSim()
+    simRef.current.reset('LEO')
   }
 
-  const [telemetry, setTelemetry] = useState<Telemetry>(() => simRef.current!.step(0))
+  const [telemetry, setTelemetry] = useState<Telemetry>(() => simRef.current!.getTelemetry())
   const [trajectory, setTrajectory] = useState<TrajectoryPoint[]>(() =>
     simRef.current!.getTrajectory(),
   )
-  const [target, setTarget] = useState<MissionTarget>('leo')
+  const [target, setTarget] = useState<MissionTarget>('LEO')
   const [throttle, setThrottleState] = useState(1)
   const [armed, setArmed] = useState(false)
   const armedRef = useRef(false)
@@ -35,11 +30,13 @@ export function useSimLoop() {
       if (!running.current) return
       const sim = simRef.current!
       if (lastTs.current == null) lastTs.current = ts
-      const dt = Math.min((ts - lastTs.current) / 1000, 0.05)
+      // Physics caps dt at 2s; use realtime + light accel for playability
+      const raw = Math.min((ts - lastTs.current) / 1000, 0.05)
       lastTs.current = ts
-      const telem = sim.step(dt)
+      const telem = sim.step(raw * 2)
 
-      if (ts - lastUi.current > 33 || telem.phase === 'success' || telem.phase === 'fail') {
+      const terminal = telem.phase === 'orbit' || telem.phase === 'transfer' || telem.phase === 'failed'
+      if (ts - lastUi.current > 33 || terminal) {
         lastUi.current = ts
         setTelemetry(telem)
         setTrajectory(sim.getTrajectory())
@@ -62,7 +59,7 @@ export function useSimLoop() {
     setArmed(false)
     setThrottleState(1)
     sim.setThrottle(1)
-    setTelemetry(sim.step(0))
+    setTelemetry(sim.getTelemetry())
     setTrajectory(sim.getTrajectory())
     lastTs.current = null
   }, [])
@@ -79,8 +76,10 @@ export function useSimLoop() {
     setArmed(false)
   }, [])
 
-  const burn = useCallback((durationSec: number) => {
-    simRef.current!.burn(durationSec)
+  const burn = useCallback((deltaVms: number) => {
+    simRef.current!.burn(deltaVms)
+    setTelemetry(simRef.current!.getTelemetry())
+    setTrajectory(simRef.current!.getTrajectory())
   }, [])
 
   const arm = useCallback(() => {
@@ -88,16 +87,25 @@ export function useSimLoop() {
     setArmed(true)
   }, [])
 
+  const meco = useCallback(() => {
+    simRef.current!.setThrottle(0)
+    setThrottleState(0)
+  }, [])
+
+  const tmiDv = hohmannTransfer().deltaVDepart
+
   return {
     telemetry,
     trajectory,
     target,
     throttle,
     armed,
+    tmiDv,
     reset,
     setThrottle,
     ignite,
     burn,
     arm,
+    meco,
   }
 }

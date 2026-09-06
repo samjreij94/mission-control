@@ -10,11 +10,13 @@ export default function App() {
     target,
     throttle,
     armed,
+    tmiDv,
     reset,
     setThrottle,
     ignite,
     burn,
     arm,
+    meco,
   } = useSimLoop()
 
   return (
@@ -24,12 +26,14 @@ export default function App() {
           <span className="brand-mark" aria-hidden />
           <div>
             <div className="brand-title">MISSION CONTROL</div>
-            <div className="brand-sub">CONSOLE · DEMO STUB PHYSICS</div>
+            <div className="brand-sub">CONSOLE · REAL createSim PHYSICS</div>
           </div>
         </div>
         <div className="status-pills">
           <span className="pill">PWA</span>
-          <span className="pill accent">{target.toUpperCase()}</span>
+          <span className="pill accent">
+            {target === 'MARS_TRANSFER' ? 'MARS' : 'LEO'}
+          </span>
         </div>
       </header>
 
@@ -45,11 +49,13 @@ export default function App() {
         target={target}
         throttle={throttle}
         armed={armed}
+        tmiDv={tmiDv}
         onReset={reset}
         onThrottle={setThrottle}
         onArm={arm}
         onIgnite={ignite}
         onBurn={burn}
+        onMeco={meco}
       />
     </div>
   )

@@ -210,6 +210,14 @@ input {
   border-color: rgba(255, 176, 32, 0.12);
 }
 
+.telem-message {
+  font-size: 11px;
+  color: var(--metal);
+  margin-bottom: 8px;
+  line-height: 1.35;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
 .telem-label {
   font-size: 9px;
   letter-spacing: 0.14em;

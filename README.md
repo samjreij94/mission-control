@@ -1,2 +1,2 @@
 # Mission Control
-iPhone-first PWA. Stubbed SimAPI matches Physics contract.
+iPhone-first PWA. Wired to real Physics createSim SimAPI.

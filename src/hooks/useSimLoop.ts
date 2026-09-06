@@ -37,17 +37,20 @@ export function useSimLoop() {
       lastTs.current = ts
       const telem = sim.step(raw * 2)
 
+      // Sync slider every frame when physics auto-zeros throttle (autopilot MECO)
+      // without calling sim.setThrottle — that would re-enter MECO / coast logic.
+      let throttleChanged = false
+      if (throttleRef.current !== telem.throttle) {
+        throttleRef.current = telem.throttle
+        setThrottleState(telem.throttle)
+        throttleChanged = true
+      }
+
       const terminal = telem.phase === 'orbit' || telem.phase === 'transfer' || telem.phase === 'failed'
-      if (ts - lastUi.current > 33 || terminal) {
+      if (ts - lastUi.current > 33 || terminal || throttleChanged) {
         lastUi.current = ts
         setTelemetry(telem)
         setTrajectory(sim.getTrajectory())
-        // Sync slider when physics auto-zeros throttle (autopilot MECO) without
-        // calling sim.setThrottle — that would re-enter MECO / coast logic.
-        if (throttleRef.current !== telem.throttle) {
-          throttleRef.current = telem.throttle
-          setThrottleState(telem.throttle)
-        }
       }
       raf = requestAnimationFrame(loop)
     }

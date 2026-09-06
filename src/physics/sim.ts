@@ -189,17 +189,17 @@ function fail(s: State, reason: string): void {
   s.message = `FAILURE: ${reason}`;
 }
 
-function applyImpulsiveBurn(s: State, deltaVms: number): void {
+/** Debit propellant / mass for Δv via rocket equation; returns actual Δv applied to bookkeeping. */
+function debitPropellantForDeltaV(s: State, deltaVms: number): number {
   const dv = Math.max(0, deltaVms);
-  if (dv <= 0) return;
+  if (dv <= 0) return 0;
   if (s.mass <= s.vehicle.dryMassKg) {
     s.message = 'No propellant for burn.';
-    return;
+    return 0;
   }
   const prop = propellantForDeltaV(dv, s.vehicle.ispSec, s.mass);
   const maxProp = fuelKg(s);
   const actualProp = Math.min(prop, maxProp);
-  // Scale Δv if propellant-limited
   let actualDv = dv;
   if (actualProp < prop - 1e-9) {
     const mf = s.mass - actualProp;
@@ -207,10 +207,20 @@ function applyImpulsiveBurn(s: State, deltaVms: number): void {
   }
   s.mass = Math.max(s.vehicle.dryMassKg, s.mass - actualProp);
   s.deltaVUsed += actualDv;
+  return actualDv;
+}
 
-  // Apply prograde (along velocity); if nearly stationary, along local horizontal
+function applyImpulsiveBurn(s: State, deltaVms: number): void {
+  const actualDv = debitPropellantForDeltaV(s, deltaVms);
+  if (actualDv <= 0) return;
+
   const speed = Math.hypot(s.vr, s.vt);
-  if (speed > 1) {
+  // Prefer local-horizontal (vt) Δv during coast/ascent circularization: raises peri
+  // better than pure prograde when flight-path angle is steep.
+  const circPhase = s.phase === 'coast' || s.phase === 'ascent';
+  if (circPhase && speed > 100) {
+    s.vt += actualDv;
+  } else if (speed > 1) {
     s.vr += (s.vr / speed) * actualDv;
     s.vt += (s.vt / speed) * actualDv;
   } else {
@@ -268,30 +278,59 @@ class Sim implements SimAPI {
   burn(deltaVms: number): void {
     const s = this.s;
     if (s.phase === 'pad' || s.phase === 'failed') return;
-    applyImpulsiveBurn(s, deltaVms);
-
-    if (s.target === 'LEO' || s.phase === 'ascent' || s.phase === 'coast') {
-      if (checkLeoOrbit(s)) {
-        s.phase = 'orbit';
-        s.enginesOn = false;
-        s.message = 'SUCCESS — Stable LEO (circularization via burn/guidance).';
-      } else {
-        s.message = `Impulsive burn ${deltaVms.toFixed(0)} m/s applied.`;
-      }
-    }
 
     if (s.target === 'MARS_TRANSFER') {
       const h = hohmannTransfer();
-      // First significant burn after reaching high altitude / orbit → departure
-      if (!s.transferDvDepartApplied && (s.phase === 'orbit' || checkLeoOrbit(s) || altitudeFromRadius(s.r) > LEO_ALT_MIN)) {
+      const departRef = h.deltaVDepart;
+      const looksLikeTmi =
+        !s.transferDvDepartApplied &&
+        (Math.abs(deltaVms - departRef) / departRef <= 0.05 || deltaVms >= 2000);
+
+      // Departure TMI: require LEO parking; heliocentric handoff (no Earth-frame Δv).
+      if (looksLikeTmi) {
+        const parked = s.phase === 'orbit' || checkLeoOrbit(s);
+        if (!parked) {
+          s.message = 'TMI denied — reach LEO parking (peri≥160 km) first.';
+          return;
+        }
+        debitPropellantForDeltaV(s, deltaVms);
         s.transferDvDepartApplied = true;
         s.phase = 'transfer';
         s.enginesOn = false;
-        s.message = `TMI / Hohmann depart Δv ≈ ${h.deltaVDepart.toFixed(0)} m/s applied (analytic ${h.deltaVDepart.toFixed(0)}).`;
-      } else if (s.transferDvDepartApplied && !s.transferDvArriveApplied && s.phase === 'transfer') {
-        s.transferDvArriveApplied = true;
-        s.message = `Mars arrival Δv ≈ ${h.deltaVArrive.toFixed(0)} m/s applied. TOF ${((h.timeOfFlightSec) / 86400).toFixed(1)} days.`;
+        s.message = `SUCCESS — TMI / Hohmann depart Δv ≈ ${departRef.toFixed(0)} m/s (heliocentric handoff).`;
+        return;
       }
+
+      // Arrival burn while already in transfer: mass debit only.
+      if (s.transferDvDepartApplied && !s.transferDvArriveApplied && s.phase === 'transfer') {
+        debitPropellantForDeltaV(s, deltaVms);
+        s.transferDvArriveApplied = true;
+        s.message = `Mars arrival Δv ≈ ${h.deltaVArrive.toFixed(0)} m/s applied. TOF ${(
+          h.timeOfFlightSec / 86400
+        ).toFixed(1)} days.`;
+        return;
+      }
+
+      // Small LEO circularization burns before TMI — Earth-frame impulsive Δv.
+      applyImpulsiveBurn(s, deltaVms);
+      if (checkLeoOrbit(s)) {
+        s.phase = 'orbit';
+        s.enginesOn = false;
+        s.message = 'LEO parking orbit. Call burn(hohmann.deltaVDepart) for TMI.';
+      } else {
+        s.message = `Impulsive burn ${deltaVms.toFixed(0)} m/s applied.`;
+      }
+      return;
+    }
+
+    // LEO (and any residual coast/ascent burns)
+    applyImpulsiveBurn(s, deltaVms);
+    if (checkLeoOrbit(s)) {
+      s.phase = 'orbit';
+      s.enginesOn = false;
+      s.message = 'SUCCESS — Stable LEO (circularization via burn/guidance).';
+    } else {
+      s.message = `Impulsive burn ${deltaVms.toFixed(0)} m/s applied.`;
     }
   }
 
@@ -385,16 +424,14 @@ class Sim implements SimAPI {
     const newSpeed = Math.hypot(s.vr, s.vt);
     recordTraj(s, newSpeed);
 
-    // Coast → orbit success for LEO when elements look good and not thrusting
+    // Coast/ascent → orbit when elements look good and not thrusting
     if ((s.phase === 'coast' || s.phase === 'ascent') && !s.enginesOn && checkLeoOrbit(s)) {
       s.phase = 'orbit';
-      s.message = 'SUCCESS — Stable LEO achieved.';
-    }
-
-    // Mars: once in rough LEO parking, tip player toward burn for TMI
-    if (s.target === 'MARS_TRANSFER' && checkLeoOrbit(s) && s.phase === 'coast' && !s.enginesOn) {
-      s.phase = 'orbit';
-      s.message = 'LEO parking orbit. Call burn(hohmann.deltaVDepart) for TMI.';
+      if (s.target === 'MARS_TRANSFER') {
+        s.message = 'LEO parking orbit. Call burn(hohmann.deltaVDepart) for TMI.';
+      } else {
+        s.message = 'SUCCESS — Stable LEO achieved.';
+      }
     }
 
     const netA = Math.hypot(dvr, dvt);

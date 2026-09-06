@@ -111,21 +111,51 @@ describe('SimAPI', () => {
     expect(sim.getTelemetry().phase).toBe('pad');
   });
 
-  it('Mars target burn path stays finite and tracks Hohmann delta-v', () => {
-    const sim = createSim();
-    sim.reset('MARS_TRANSFER');
+  it('Mars Hohmann analytics stay in expected band', () => {
     const h = hohmannTransfer();
     expect(h.deltaVDepart).toBeGreaterThan(2900);
     expect(h.deltaVArrive).toBeGreaterThan(2500);
+    expect(Number.isFinite(h.timeOfFlightSec)).toBe(true);
+  });
+
+  it('TMI while suborbital coast is denied without dumping Earth-frame Δv', () => {
+    const sim = createSim();
+    sim.reset('MARS_TRANSFER', {
+      wetMassKg: 550_000,
+      dryMassKg: 40_000,
+      ispSec: 320,
+      thrustN: 1.2e7,
+    });
     sim.setThrottle(1);
     sim.ignite();
-    for (let i = 0; i < 200; i++) sim.step(0.2);
-    const before = sim.getTelemetry().massKg;
+    let tel = sim.getTelemetry();
+    // Brief ascent then early MECO — typically peri≪0 / not parked
+    for (let i = 0; i < 40; i++) {
+      tel = sim.step(0.1);
+      if (tel.phase === 'failed') break;
+    }
+    sim.setThrottle(0);
+    tel = sim.getTelemetry();
+    expect(tel.phase).toBe('coast');
+    expect(tel.phase).not.toBe('failed');
+    // Not in LEO parking
+    expect((tel.periapsisM ?? -1) < 160_000).toBe(true);
+
+    const periBefore = tel.periapsisM ?? -1e12;
+    const speedBefore = tel.speedMs;
+    const h = hohmannTransfer();
     sim.burn(h.deltaVDepart);
-    const tel = sim.getTelemetry();
-    expect(Number.isFinite(tel.massKg)).toBe(true);
-    expect(tel.massKg).toBeLessThan(before);
-    expect(tel.deltaVUsedMs).toBeGreaterThan(0);
+    tel = sim.getTelemetry();
+
+    expect(tel.phase).not.toBe('transfer');
+    expect(tel.phase === 'coast' || tel.phase === 'ascent').toBe(true);
+    expect(tel.message).toMatch(/TMI denied|LEO parking/i);
+    // Must not have slammed ~2.9 km/s into Earth-frame velocity
+    expect(Math.abs(tel.speedMs - speedBefore)).toBeLessThan(50);
+    // Peri should not be wrecked further by a 2945 m/s Earth dump
+    if (Number.isFinite(periBefore) && Number.isFinite(tel.periapsisM ?? NaN)) {
+      expect((tel.periapsisM ?? 0) - periBefore).toBeGreaterThan(-50_000);
+    }
   });
 
   it('setThrottle(0) during ascent immediately enters coast (MECO)', () => {
@@ -197,43 +227,97 @@ describe('SimAPI', () => {
     expect(tel.message).toMatch(/SUCCESS|LEO/i);
   });
 
-  it('Mars: coast after MECO then burn enters transfer', () => {
+  it('Mars: LEO parking then TMI enters transfer and stays stable', () => {
     const sim = createSim();
+    // Inject a parked LEO state (checkLeoOrbit band) without relying on ascent luck.
     sim.reset('MARS_TRANSFER', {
-      wetMassKg: 500_000,
-      dryMassKg: 30_000,
-      ispSec: 420,
-      thrustN: 9e6,
+      wetMassKg: 200_000,
+      dryMassKg: 40_000,
+      ispSec: 320,
+      thrustN: 5e6,
     });
-    sim.setThrottle(1);
-    sim.ignite();
+    const r = R_EARTH + 250_000;
+    const vCirc = circularOrbitSpeed(r, MU_EARTH);
+    const internal = sim as unknown as {
+      s: {
+        phase: string;
+        r: number;
+        vr: number;
+        vt: number;
+        enginesOn: boolean;
+        throttle: number;
+        t: number;
+        message: string;
+      };
+    };
+    internal.s.phase = 'coast';
+    internal.s.r = r;
+    internal.s.vr = 0;
+    internal.s.vt = vCirc;
+    internal.s.enginesOn = false;
+    internal.s.throttle = 0;
+    internal.s.t = 100;
+    internal.s.message = 'Injected parking';
 
-    let tel = sim.getTelemetry();
-    for (let i = 0; i < 5000; i++) {
-      tel = sim.step(0.1);
-      if (tel.phase === 'failed') break;
-      if ((tel.apoapsisM ?? 0) >= 280_000 && tel.altitudeM > 100_000) break;
-      if (tel.phase === 'coast') break;
-    }
-    expect(tel.phase).toBe('ascent');
-
-    sim.setThrottle(0);
-    tel = sim.getTelemetry();
-    expect(tel.phase).toBe('coast');
-
-    // Coast to apoapsis so altitude clears LEO_ALT_MIN for TMI gating.
-    for (let i = 0; i < 800; i++) {
-      tel = sim.step(0.5);
-      if (tel.phase === 'failed') break;
-      if (tel.altitudeM >= (tel.apoapsisM ?? 0) - 2000) break;
-    }
-    expect(tel.phase).toBe('coast');
-    expect(tel.altitudeM).toBeGreaterThan(160_000);
+    // Coast path should promote to orbit parking for Mars.
+    let tel = sim.step(0.1);
+    expect(tel.phase).toBe('orbit');
+    expect(tel.message).toMatch(/parking|TMI|SUCCESS|LEO/i);
+    expect(tel.periapsisM ?? 0).toBeGreaterThan(160_000);
 
     const h = hohmannTransfer();
+    const massBefore = tel.massKg;
+    const speedBefore = tel.speedMs;
     sim.burn(h.deltaVDepart);
     tel = sim.getTelemetry();
     expect(tel.phase).toBe('transfer');
-    expect(tel.message).toMatch(/TMI|Hohmann|depart/i);
+    expect(tel.message).toMatch(/TMI|SUCCESS/i);
+    expect(tel.massKg).toBeLessThan(massBefore);
+    // Heliocentric handoff: Earth-frame speed unchanged
+    expect(Math.abs(tel.speedMs - speedBefore)).toBeLessThan(1);
+
+    for (let i = 0; i < 40; i++) tel = sim.step(0.5);
+    expect(tel.phase).toBe('transfer');
+    expect(tel.phase).not.toBe('failed');
+  });
+
+  it('LEO: peri≳150 km & apo in band yields orbit SUCCESS', () => {
+    const sim = createSim();
+    sim.reset('LEO', {
+      wetMassKg: 180_000,
+      dryMassKg: 40_000,
+      ispSec: 300,
+      thrustN: 4e6,
+    });
+    // Mildly eccentric but playable LEO: peri ~180 km, apo ~400 km
+    const periR = R_EARTH + 180_000;
+    const apoR = R_EARTH + 400_000;
+    const a = 0.5 * (periR + apoR);
+    // Place at periapsis with vis-viva speed, vr=0
+    const vPeri = Math.sqrt(MU_EARTH * (2 / periR - 1 / a));
+    const internal = sim as unknown as {
+      s: {
+        phase: string;
+        r: number;
+        vr: number;
+        vt: number;
+        enginesOn: boolean;
+        throttle: number;
+        t: number;
+      };
+    };
+    internal.s.phase = 'coast';
+    internal.s.r = periR;
+    internal.s.vr = 0;
+    internal.s.vt = vPeri;
+    internal.s.enginesOn = false;
+    internal.s.throttle = 0;
+    internal.s.t = 50;
+
+    let tel = sim.step(0.1);
+    expect(tel.periapsisM ?? 0).toBeGreaterThan(150_000);
+    expect(tel.apoapsisM ?? 0).toBeLessThan(2_000_000);
+    expect(tel.phase).toBe('orbit');
+    expect(tel.message).toMatch(/SUCCESS/i);
   });
 });

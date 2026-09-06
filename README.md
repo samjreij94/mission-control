@@ -1,3 +1,8 @@
-# Mission Control
+# Mission Control Physics
 
-iPhone-first PWA rocket launch sim with real orbital mechanics.
+Real orbital-mechanics core for the Mission Control launch simulator.
+
+- Package focus: src/physics/
+- Docs: src/physics/README.md
+
+Graphics stubs against createSim() / SimAPI.

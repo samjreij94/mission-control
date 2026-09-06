@@ -123,10 +123,15 @@ function orbitalElements(s: State) {
 }
 
 function autoPitch(alt: number): number {
-  // 0 = radial (vertical), π/2 = tangential (horizontal)
-  if (alt < 1000) return 0;
-  if (alt > 80_000) return Math.PI / 2;
-  return ((alt - 1000) / 79_000) * (Math.PI / 2);
+  // Gravity-turn pitch program: 0 = radial (vertical), π/2 = tangential.
+  // Stay nearer vertical through the dense lower atmosphere, then open the turn.
+  // Start ~2 km; near-horizontal by ~80 km. Ending later (100–150 km) was tried
+  // but leaves peri deeply negative and burns circularization Δv with this integrator.
+  const startM = 2_000;
+  const endM = 80_000;
+  if (alt < startM) return 0;
+  if (alt > endM) return Math.PI / 2;
+  return ((alt - startM) / (endM - startM)) * (Math.PI / 2);
 }
 
 function recordTraj(s: State, speed: number): void {
@@ -193,13 +198,11 @@ function fail(s: State, reason: string): void {
 function debitPropellantForDeltaV(s: State, deltaVms: number): number {
   const dv = Math.max(0, deltaVms);
   if (dv <= 0) return 0;
-  if (s.mass <= s.vehicle.dryMassKg) {
-    s.message = 'No propellant for burn.';
-    return 0;
-  }
+  if (s.mass <= s.vehicle.dryMassKg || fuelKg(s) <= 0) return 0;
   const prop = propellantForDeltaV(dv, s.vehicle.ispSec, s.mass);
   const maxProp = fuelKg(s);
   const actualProp = Math.min(prop, maxProp);
+  if (actualProp <= 0) return 0;
   let actualDv = dv;
   if (actualProp < prop - 1e-9) {
     const mf = s.mass - actualProp;
@@ -210,9 +213,10 @@ function debitPropellantForDeltaV(s: State, deltaVms: number): number {
   return actualDv;
 }
 
-function applyImpulsiveBurn(s: State, deltaVms: number): void {
+/** Apply impulsive Δv; returns actual Δv spent (0 = no-op). */
+function applyImpulsiveBurn(s: State, deltaVms: number): number {
   const actualDv = debitPropellantForDeltaV(s, deltaVms);
-  if (actualDv <= 0) return;
+  if (actualDv <= 0) return 0;
 
   const speed = Math.hypot(s.vr, s.vt);
   // Prefer local-horizontal (vt) Δv during coast/ascent circularization: raises peri
@@ -226,6 +230,7 @@ function applyImpulsiveBurn(s: State, deltaVms: number): void {
   } else {
     s.vt += actualDv;
   }
+  return actualDv;
 }
 
 class Sim implements SimAPI {
@@ -279,6 +284,11 @@ class Sim implements SimAPI {
     const s = this.s;
     if (s.phase === 'pad' || s.phase === 'failed') return;
 
+    // Dry / zero remaining Δv: no-op — do not claim burn applied or TMI success.
+    if (deltaVms <= 0 || fuelKg(s) <= 0 || remainingDeltaV(s) <= 1e-6) {
+      return;
+    }
+
     if (s.target === 'MARS_TRANSFER') {
       const h = hohmannTransfer();
       const departRef = h.deltaVDepart;
@@ -293,7 +303,8 @@ class Sim implements SimAPI {
           s.message = 'TMI denied — reach LEO parking (peri≥160 km) first.';
           return;
         }
-        debitPropellantForDeltaV(s, deltaVms);
+        const actualDv = debitPropellantForDeltaV(s, deltaVms);
+        if (actualDv <= 0) return;
         s.transferDvDepartApplied = true;
         s.phase = 'transfer';
         s.enginesOn = false;
@@ -303,7 +314,8 @@ class Sim implements SimAPI {
 
       // Arrival burn while already in transfer: mass debit only.
       if (s.transferDvDepartApplied && !s.transferDvArriveApplied && s.phase === 'transfer') {
-        debitPropellantForDeltaV(s, deltaVms);
+        const actualDv = debitPropellantForDeltaV(s, deltaVms);
+        if (actualDv <= 0) return;
         s.transferDvArriveApplied = true;
         s.message = `Mars arrival Δv ≈ ${h.deltaVArrive.toFixed(0)} m/s applied. TOF ${(
           h.timeOfFlightSec / 86400
@@ -312,7 +324,8 @@ class Sim implements SimAPI {
       }
 
       // Small LEO circularization burns before TMI — Earth-frame impulsive Δv.
-      applyImpulsiveBurn(s, deltaVms);
+      const actualDv = applyImpulsiveBurn(s, deltaVms);
+      if (actualDv <= 0) return;
       if (checkLeoOrbit(s)) {
         s.phase = 'orbit';
         s.enginesOn = false;
@@ -324,7 +337,8 @@ class Sim implements SimAPI {
     }
 
     // LEO (and any residual coast/ascent burns)
-    applyImpulsiveBurn(s, deltaVms);
+    const actualDv = applyImpulsiveBurn(s, deltaVms);
+    if (actualDv <= 0) return;
     if (checkLeoOrbit(s)) {
       s.phase = 'orbit';
       s.enginesOn = false;

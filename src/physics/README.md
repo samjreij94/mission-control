@@ -9,6 +9,7 @@ See formulas and SimAPI notes below.
 - setThrottle(0..1): clamped throttle
 - ignite(): leave pad when TWR > 1
 - burn(deltaVms): impulsive prograde delta-v + rocket-equation mass update
+  (no-op when dry / remaining Δv ≈ 0 — no fake success messaging)
 - step(dtSec): integrate one step; returns Telemetry
 - getTrajectory() / getTarget() / getTelemetry()
 
@@ -16,6 +17,29 @@ See formulas and SimAPI notes below.
 
 - x = downrange along surface arc = R_EARTH * theta (m)
 - y = altitude above mean Earth radius (m)
+
+## Stock vehicle (defaults)
+
+Single-stage stack tuned for a playable LEO path (real rocket equation + drag/gravity):
+
+| Knob | Value | Rationale |
+|------|-------|-----------|
+| Wet mass | 550 t | Falcon-9-ish stack |
+| Dry mass | 25 t | High propellant fraction (~0.955) |
+| Isp | 340 s | Mission-average (vac-biased blend of SL ~282 s and vac ~311–348 s) |
+| Thrust | 7.6 MN | Liftoff TWR ≈ 1.41 (> 1.2) |
+
+Ideal Δv ≈ Isp · g0 · ln(m0/mf) ≈ **10.3 km/s** — enough for LEO plus gravity/drag losses
+with margin for circularization. Mars TMI after parking is a heliocentric handoff that
+debits remaining propellant (not a full n-body SOI ephemeris).
+
+### Gravity-turn guidance (`autoPitch`)
+
+- Stay vertical to ~2 km, then open the turn.
+- Near-horizontal by ~80 km.
+- Ending the turn much later (100–150 km) was tried; with this 2D Euler integrator it
+  leaves peri deeply negative and wastes circularization Δv. The 2→80 km program keeps
+  peri recoverable while still clearing the dense atmosphere nearer vertical.
 
 ## Constants (sources)
 
@@ -39,11 +63,14 @@ See formulas and SimAPI notes below.
 
 - Non-rotating Earth; no J2 / third-body
 - Coplanar circular heliocentric orbits; analytic Hohmann only
-- Constant Isp; single-stage vehicle
+- Constant mission-average Isp; single-stage vehicle (no staging model)
 - Exponential atmosphere; Euler dt capped at 2 s
 - burn() impulsive; Mars path is Hohmann bookkeeping not full SOI ephemeris
+- Stock residual after LEO may be below full Hohmann depart Δv; TMI still handoffs
+  when any propellant remains
 
 ## Tests
 
 Package script test runs Vitest over src/physics/*.test.ts.
-Covers rocket identity, LEO speed, Hohmann +/-1%, SimAPI.
+Covers rocket identity, LEO speed, Hohmann +/-1%, SimAPI including stock LEO / Mars
+ascent integration and dry burn no-op.

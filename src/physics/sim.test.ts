@@ -40,12 +40,7 @@ describe('Earth-Mars Hohmann analytic (1% tolerance)', () => {
 describe('SimAPI', () => {
   it('reset setThrottle ignite step loop does not NaN', () => {
     const sim = createSim();
-    sim.reset('LEO', {
-      wetMassKg: 550_000,
-      dryMassKg: 50_000,
-      ispSec: 300,
-      thrustN: 7.6e6,
-    });
+    sim.reset('LEO');
     sim.setThrottle(1);
     sim.ignite();
     expect(sim.getTelemetry().phase).toBe('ascent');
@@ -160,12 +155,7 @@ describe('SimAPI', () => {
 
   it('setThrottle(0) during ascent immediately enters coast (MECO)', () => {
     const sim = createSim();
-    sim.reset('LEO', {
-      wetMassKg: 550_000,
-      dryMassKg: 50_000,
-      ispSec: 300,
-      thrustN: 7.6e6,
-    });
+    sim.reset('LEO');
     sim.setThrottle(1);
     sim.ignite();
     for (let i = 0; i < 30; i++) sim.step(0.1);
@@ -185,46 +175,180 @@ describe('SimAPI', () => {
     expect(after.phase).not.toBe('ascent');
   });
 
-  it('MECO then circularization burn can reach LEO orbit', () => {
-    // Capable single-stack so apoapsis can be raised above LEO_ALT_MIN with propellant left.
+  it('stock LEO: full-throttle ascent → MECO → coast → circularize → SUCCESS', () => {
     const sim = createSim();
-    sim.reset('LEO', {
-      wetMassKg: 500_000,
-      dryMassKg: 30_000,
-      ispSec: 420,
-      thrustN: 9e6,
-    });
+    sim.reset('LEO'); // default vehicle
     sim.setThrottle(1);
     sim.ignite();
 
     let tel = sim.getTelemetry();
-    for (let i = 0; i < 5000; i++) {
+    for (let i = 0; i < 8000; i++) {
       tel = sim.step(0.1);
       if (tel.phase === 'failed') break;
-      if ((tel.apoapsisM ?? 0) >= 280_000 && tel.altitudeM > 100_000) break;
-      if (tel.phase === 'coast') break;
+      if (tel.phase === 'coast' || tel.phase === 'orbit') break;
+      // Scripted MECO when apo is high enough for a recoverable coast
+      if ((tel.apoapsisM ?? 0) >= 220_000 && tel.altitudeM > 90_000) {
+        sim.setThrottle(0);
+        tel = sim.getTelemetry();
+        break;
+      }
     }
-    expect(tel.phase).toBe('ascent');
-    expect(tel.apoapsisM ?? 0).toBeGreaterThanOrEqual(280_000);
+    expect(tel.phase).not.toBe('failed');
+    expect(tel.phase === 'coast' || tel.phase === 'orbit').toBe(true);
+    if (tel.phase === 'ascent') {
+      sim.setThrottle(0);
+      tel = sim.getTelemetry();
+    }
 
-    sim.setThrottle(0);
-    tel = sim.getTelemetry();
-    expect(tel.phase).toBe('coast');
-    expect(tel.thrustN).toBe(0);
-
-    // Coast toward apoapsis, then circularize with a modest impulsive burn.
-    for (let i = 0; i < 800; i++) {
+    // Coast toward apoapsis
+    for (let i = 0; i < 2000; i++) {
+      if (tel.phase === 'orbit' || tel.phase === 'failed') break;
       tel = sim.step(0.5);
-      if (tel.phase === 'failed') break;
-      if (tel.altitudeM >= (tel.apoapsisM ?? 0) - 2000) break;
+      if ((tel.apoapsisM ?? 0) > 100_000 && tel.altitudeM >= (tel.apoapsisM ?? 0) - 5_000) break;
     }
-    expect(tel.phase).toBe('coast');
-    expect(tel.deltaVRemainingMs).toBeGreaterThan(400);
+    expect(tel.phase).not.toBe('failed');
 
-    sim.burn(500);
-    tel = sim.getTelemetry();
+    // Circularize with horizontal impulsive burns until peri ≥ 160 km / orbit
+    for (let b = 0; b < 40; b++) {
+      if (tel.phase === 'orbit' || tel.phase === 'failed') break;
+      if ((tel.periapsisM ?? -1e12) >= 160_000 && tel.phase === 'orbit') break;
+      const rem = tel.deltaVRemainingMs;
+      if (rem < 1) break;
+      const dv = Math.min(250, rem);
+      sim.burn(dv);
+      tel = sim.getTelemetry();
+      for (let i = 0; i < 5; i++) {
+        if (tel.phase === 'orbit' || tel.phase === 'failed') break;
+        tel = sim.step(0.2);
+      }
+    }
+
     expect(tel.phase).toBe('orbit');
-    expect(tel.message).toMatch(/SUCCESS|LEO/i);
+    expect(tel.message).toMatch(/SUCCESS/i);
+    expect(tel.periapsisM ?? 0).toBeGreaterThanOrEqual(160_000);
+    expect(tel.deltaVRemainingMs).toBeGreaterThanOrEqual(0);
+    // Prefer some margin after SUCCESS (circularization should not dry the stack)
+    expect(tel.deltaVRemainingMs).toBeGreaterThan(100);
+  });
+
+  it('stock Mars: ascent to parking then TMI enters transfer', () => {
+    const sim = createSim();
+    sim.reset('MARS_TRANSFER'); // default vehicle
+    sim.setThrottle(1);
+    sim.ignite();
+
+    let tel = sim.getTelemetry();
+    for (let i = 0; i < 8000; i++) {
+      tel = sim.step(0.1);
+      if (tel.phase === 'failed') break;
+      if (tel.phase === 'coast' || tel.phase === 'orbit') break;
+      if ((tel.apoapsisM ?? 0) >= 220_000 && tel.altitudeM > 90_000) {
+        sim.setThrottle(0);
+        tel = sim.getTelemetry();
+        break;
+      }
+    }
+    expect(tel.phase).not.toBe('failed');
+
+    for (let i = 0; i < 2000; i++) {
+      if (tel.phase === 'orbit' || tel.phase === 'failed') break;
+      tel = sim.step(0.5);
+      if ((tel.apoapsisM ?? 0) > 100_000 && tel.altitudeM >= (tel.apoapsisM ?? 0) - 5_000) break;
+    }
+
+    for (let b = 0; b < 40; b++) {
+      if (tel.phase === 'orbit' || tel.phase === 'failed') break;
+      const rem = tel.deltaVRemainingMs;
+      if (rem < 1) break;
+      sim.burn(Math.min(250, rem));
+      tel = sim.getTelemetry();
+      for (let i = 0; i < 5; i++) {
+        if (tel.phase === 'orbit' || tel.phase === 'failed') break;
+        tel = sim.step(0.2);
+      }
+    }
+
+    expect(tel.phase === 'orbit' || (tel.periapsisM ?? 0) >= 160_000).toBe(true);
+    expect(tel.deltaVRemainingMs).toBeGreaterThan(0);
+
+    const h = hohmannTransfer();
+    sim.burn(h.deltaVDepart);
+    tel = sim.getTelemetry();
+    expect(tel.phase).toBe('transfer');
+    expect(tel.message).toMatch(/TMI|SUCCESS/i);
+
+    for (let i = 0; i < 40; i++) tel = sim.step(0.5);
+    expect(tel.phase).toBe('transfer');
+    expect(tel.phase).not.toBe('failed');
+  });
+
+  it('burn no-op when dry / zero remaining Δv', () => {
+    const sim = createSim();
+    sim.reset('LEO', {
+      wetMassKg: 50_000,
+      dryMassKg: 50_000,
+      ispSec: 340,
+      thrustN: 7.6e6,
+    });
+    // Inject coast state with no propellant
+    const internal = sim as unknown as {
+      s: {
+        phase: string;
+        r: number;
+        vr: number;
+        vt: number;
+        mass: number;
+        enginesOn: boolean;
+        throttle: number;
+        t: number;
+        message: string;
+      };
+    };
+    const r = R_EARTH + 200_000;
+    const vCirc = circularOrbitSpeed(r, MU_EARTH);
+    internal.s.phase = 'coast';
+    internal.s.r = r;
+    internal.s.vr = 0;
+    internal.s.vt = vCirc * 0.9;
+    internal.s.mass = 50_000;
+    internal.s.enginesOn = false;
+    internal.s.throttle = 0;
+    internal.s.t = 100;
+    internal.s.message = 'Coasting dry.';
+
+    const before = sim.getTelemetry();
+    expect(before.deltaVRemainingMs).toBe(0);
+    sim.burn(500);
+    const after = sim.getTelemetry();
+    expect(after.phase).toBe(before.phase);
+    expect(after.message).toBe(before.message);
+    expect(after.message).not.toMatch(/burn applied|SUCCESS|TMI/i);
+    expect(after.massKg).toBe(before.massKg);
+    expect(after.speedMs).toBeCloseTo(before.speedMs, 6);
+
+    // Mars TMI also no-ops when dry
+    sim.reset('MARS_TRANSFER', {
+      wetMassKg: 50_000,
+      dryMassKg: 50_000,
+      ispSec: 340,
+      thrustN: 7.6e6,
+    });
+    const internal2 = sim as unknown as { s: typeof internal.s & { transferDvDepartApplied?: boolean } };
+    internal2.s.phase = 'orbit';
+    internal2.s.r = r;
+    internal2.s.vr = 0;
+    internal2.s.vt = vCirc;
+    internal2.s.mass = 50_000;
+    internal2.s.enginesOn = false;
+    internal2.s.throttle = 0;
+    internal2.s.t = 100;
+    internal2.s.message = 'Parked dry.';
+    const beforeMars = sim.getTelemetry();
+    sim.burn(hohmannTransfer().deltaVDepart);
+    const afterMars = sim.getTelemetry();
+    expect(afterMars.phase).toBe('orbit');
+    expect(afterMars.message).toBe(beforeMars.message);
+    expect(afterMars.message).not.toMatch(/TMI|burn applied/i);
   });
 
   it('Mars: LEO parking then TMI enters transfer and stays stable', () => {

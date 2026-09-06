@@ -36,7 +36,7 @@ export const SOI_MARS = 0.576e9; // m
 /** Target LEO altitude band for mission success (m above surface). */
 export const LEO_ALT_MIN = 160_000;
 export const LEO_ALT_MAX = 2_000_000;
-export const LEO_ECC_MAX = 0.05;
+export const LEO_ECC_MAX = 0.15;
 
 /** Default vehicle — Falcon-9-ish single-stack for playability. */
 export const DEFAULT_WET_MASS = 550_000; // kg

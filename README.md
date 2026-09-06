@@ -3,6 +3,8 @@
 iPhone-first Progressive Web App: NASA/SpaceX-style launch console.
 UI is wired to the real Physics **SimAPI** (`createSim`, `Telemetry`, `MissionTarget`).
 
+**Play live:** [https://samjreij94.github.io/mission-control/](https://samjreij94.github.io/mission-control/)
+
 ## Quick start
 
 ```bash
@@ -37,7 +39,7 @@ npm run preview
 
 ## Install on iPhone
 
-1. Serve the app over **HTTPS** or trusted **localhost**, open in **Safari**.
+1. On your iPhone, open **Safari** and go to **[https://samjreij94.github.io/mission-control/](https://samjreij94.github.io/mission-control/)**.
 2. Tap **Share** → **Add to Home Screen**.
 3. Launch from the home-screen icon for a standalone, full-screen console.
 

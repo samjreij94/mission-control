@@ -209,14 +209,14 @@ function drawCraftMarker(
   x: number,
   y: number,
   color: string,
-  size = 7,
+  size = 12,
 ) {
-  // Chevron / rocket nose — distinct from circular planet markers
+  // Chevron / rocket nose — distinct from circular planet markers; sized for glanceability
   ctx.save()
   ctx.translate(x, y)
   ctx.fillStyle = color
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)'
-  ctx.lineWidth = 1
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)'
+  ctx.lineWidth = 1.5
   ctx.beginPath()
   ctx.moveTo(0, -size)
   ctx.lineTo(size * 0.7, size * 0.6)
@@ -226,7 +226,7 @@ function drawCraftMarker(
   ctx.fill()
   ctx.stroke()
   ctx.shadowColor = color
-  ctx.shadowBlur = 8
+  ctx.shadowBlur = 14
   ctx.fill()
   ctx.shadowBlur = 0
   ctx.restore()
@@ -346,7 +346,7 @@ function drawMarsFrame(
   const theta = theta0 + craftT * (theta1 - theta0)
   const craftX = ellipseCx + transferA * Math.cos(theta)
   const craftY = cy + transferB * Math.sin(theta)
-  drawCraftMarker(ctx, craftX, craftY, '#ffb020', 6)
+  drawCraftMarker(ctx, craftX, craftY, '#ffb020', 11)
   ctx.font = '700 8px ui-monospace, monospace'
   ctx.fillStyle = 'rgba(255, 200, 100, 0.95)'
   ctx.fillText('CRAFT', craftX - 14, craftY - 12)
@@ -394,8 +394,22 @@ function drawAscentPath(
   const color = isFail ? '#ff4d4d' : isSuccess ? '#3dff9a' : accent
 
   if (trajectory.length > 1) {
+    // Soft under-glow then bold stroke so ascent is visible at a glance
+    ctx.lineJoin = 'round'
+    ctx.lineCap = 'round'
     ctx.strokeStyle = color
-    ctx.lineWidth = 2
+    ctx.globalAlpha = 0.28
+    ctx.lineWidth = 8
+    ctx.beginPath()
+    trajectory.forEach((p, i) => {
+      const x = sx(p.x)
+      const y = sy(Math.max(0, p.y))
+      if (i === 0) ctx.moveTo(x, y)
+      else ctx.lineTo(x, y)
+    })
+    ctx.stroke()
+    ctx.globalAlpha = 1
+    ctx.lineWidth = 3.5
     ctx.beginPath()
     trajectory.forEach((p, i) => {
       const x = sx(p.x)
@@ -410,27 +424,29 @@ function drawAscentPath(
     const ly = sy(Math.max(0, last.y))
 
     if (useCraftChevron && !isFail) {
-      drawCraftMarker(ctx, lx, ly, color, 6)
+      drawCraftMarker(ctx, lx, ly, color, 11)
     } else {
       ctx.fillStyle = color
       ctx.beginPath()
-      ctx.arc(lx, ly, 4, 0, Math.PI * 2)
+      ctx.arc(lx, ly, 7, 0, Math.PI * 2)
       ctx.fill()
     }
 
     if (isFail) {
       ctx.strokeStyle = 'rgba(255,77,77,0.7)'
+      ctx.lineWidth = 2.5
       ctx.beginPath()
-      ctx.moveTo(lx - 7, ly - 7)
-      ctx.lineTo(lx + 7, ly + 7)
-      ctx.moveTo(lx + 7, ly - 7)
-      ctx.lineTo(lx - 7, ly + 7)
+      ctx.moveTo(lx - 10, ly - 10)
+      ctx.lineTo(lx + 10, ly + 10)
+      ctx.moveTo(lx + 10, ly - 10)
+      ctx.lineTo(lx - 10, ly + 10)
       ctx.stroke()
     }
     if (isSuccess) {
       ctx.strokeStyle = 'rgba(61,255,154,0.55)'
+      ctx.lineWidth = 2
       ctx.beginPath()
-      ctx.arc(lx, ly, 10, 0, Math.PI * 2)
+      ctx.arc(lx, ly, 16, 0, Math.PI * 2)
       ctx.stroke()
     }
   }
@@ -438,6 +454,8 @@ function drawAscentPath(
 
 export function TrajectoryCanvas({ trajectory, target, telemetry }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const drawArgsRef = useRef({ trajectory, target, telemetry })
+  drawArgsRef.current = { trajectory, target, telemetry }
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -445,96 +463,111 @@ export function TrajectoryCanvas({ trajectory, target, telemetry }: Props) {
     const parent = canvas.parentElement
     if (!parent) return
 
-    const dpr = Math.min(window.devicePixelRatio || 1, 2)
-    const w = parent.clientWidth
-    const h = parent.clientHeight
-    canvas.width = Math.floor(w * dpr)
-    canvas.height = Math.floor(h * dpr)
-    canvas.style.width = `${w}px`
-    canvas.style.height = `${h}px`
+    const paint = () => {
+      const { trajectory: traj, target: tgt, telemetry: telem } = drawArgsRef.current
+      const dpr = Math.min(window.devicePixelRatio || 1, 2)
+      const w = parent.clientWidth
+      const h = parent.clientHeight
+      if (w < 2 || h < 2) return
 
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      canvas.width = Math.floor(w * dpr)
+      canvas.height = Math.floor(h * dpr)
+      canvas.style.width = `${w}px`
+      canvas.style.height = `${h}px`
 
-    const isMars = target === 'MARS_TRANSFER'
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 
-    ctx.fillStyle = isMars ? '#07060a' : '#05070c'
-    ctx.fillRect(0, 0, w, h)
+      const isMars = tgt === 'MARS_TRANSFER'
 
-    drawStars(
-      ctx,
-      w,
-      h,
-      isMars ? 'rgba(255, 210, 160, 0.28)' : 'rgba(180, 210, 255, 0.35)',
-      isMars ? 48 : 60,
-    )
+      ctx.fillStyle = isMars ? '#07060a' : '#05070c'
+      ctx.fillRect(0, 0, w, h)
 
-    // Physics TrajectoryPoint: x = downrange arc (m), y = altitude (m)
-    // Mars keeps ascent plot in a right inset so Hohmann schematic stays readable.
-    const pad = 28
-    const plotLeft = isMars ? Math.floor(w * 0.52) : pad
-    const plotRight = w - pad
-    const plotTop = pad + (isMars ? 8 : 0)
-    const plotBottom = h - pad
-    const plotW = Math.max(40, plotRight - plotLeft)
-    const plotH = Math.max(40, plotBottom - plotTop)
+      drawStars(
+        ctx,
+        w,
+        h,
+        isMars ? 'rgba(255, 210, 160, 0.28)' : 'rgba(180, 210, 255, 0.35)',
+        isMars ? 48 : 60,
+      )
 
-    const maxX = Math.max(200_000, ...trajectory.map((p) => p.x), 1)
-    const maxY = Math.max(
-      isMars ? 120_000 : 450_000, // room to show full LEO target band
-      ...trajectory.map((p) => p.y),
-      telemetry.altitudeM,
-      telemetry.apoapsisM ?? 0,
-      1,
-    )
+      // Physics TrajectoryPoint: x = downrange arc (m), y = altitude (m)
+      // Mars keeps ascent plot in a right inset so Hohmann schematic stays readable.
+      const pad = 28
+      const plotLeft = isMars ? Math.floor(w * 0.52) : pad
+      const plotRight = w - pad
+      const plotTop = pad + (isMars ? 8 : 0)
+      const plotBottom = h - pad
+      const plotW = Math.max(40, plotRight - plotLeft)
+      const plotH = Math.max(40, plotBottom - plotTop)
 
-    const sx = (x: number) => plotLeft + (x / maxX) * plotW
-    const sy = (y: number) => plotBottom - (y / maxY) * plotH
+      const maxX = Math.max(200_000, ...traj.map((p) => p.x), 1)
+      const maxY = Math.max(
+        isMars ? 120_000 : 450_000, // room to show full LEO target band
+        ...traj.map((p) => p.y),
+        telem.altitudeM,
+        telem.apoapsisM ?? 0,
+        1,
+      )
 
-    if (isMars) {
-      drawMarsFrame(ctx, w, h, pad, telemetry.phase)
-      // Subtle plot well for ascent polyline
-      ctx.fillStyle = 'rgba(8, 10, 16, 0.35)'
-      ctx.fillRect(plotLeft - 6, plotTop - 6, plotW + 12, plotH + 12)
-      ctx.strokeStyle = 'rgba(255, 176, 32, 0.18)'
-      ctx.strokeRect(plotLeft - 6, plotTop - 6, plotW + 12, plotH + 12)
-      ctx.fillStyle = 'rgba(255, 176, 32, 0.4)'
-      ctx.font = '8px ui-monospace, monospace'
-      ctx.fillText('ASCENT INSET', plotLeft, plotTop - 10)
-    } else {
-      drawLeoFrame(ctx, w, h, pad, sy, telemetry.altitudeM)
+      const sx = (x: number) => plotLeft + (x / maxX) * plotW
+      const sy = (y: number) => plotBottom - (y / maxY) * plotH
+
+      if (isMars) {
+        drawMarsFrame(ctx, w, h, pad, telem.phase)
+        // Subtle plot well for ascent polyline
+        ctx.fillStyle = 'rgba(8, 10, 16, 0.35)'
+        ctx.fillRect(plotLeft - 6, plotTop - 6, plotW + 12, plotH + 12)
+        ctx.strokeStyle = 'rgba(255, 176, 32, 0.18)'
+        ctx.strokeRect(plotLeft - 6, plotTop - 6, plotW + 12, plotH + 12)
+        ctx.fillStyle = 'rgba(255, 176, 32, 0.4)'
+        ctx.font = '8px ui-monospace, monospace'
+        ctx.fillText('ASCENT INSET', plotLeft, plotTop - 10)
+      } else {
+        drawLeoFrame(ctx, w, h, pad, sy, telem.altitudeM)
+      }
+
+      drawAscentPath(
+        ctx,
+        traj,
+        telem,
+        sx,
+        sy,
+        isMars ? '#ffb020' : '#00e5ff',
+        true,
+      )
+
+      // Frame badge + bold TARGET callout (destination must scream)
+      ctx.font = '600 10px ui-monospace, SFMono-Regular, Menlo, monospace'
+      if (isMars) {
+        ctx.fillStyle = 'rgba(255, 176, 32, 0.7)'
+        ctx.fillText('FRAME · HELIO · HOHMANN XFER', 12, 18)
+        // TARGET · MARS drawn inside drawMarsFrame
+      } else {
+        ctx.fillStyle = 'rgba(0, 229, 255, 0.55)'
+        ctx.fillText('FRAME · EARTH · DOWNRANGE / ALT', 12, 18)
+        const leoLabel = `TARGET · LEO ${Math.round(LEO_ALT_MIN / 1000)}–${Math.round(LEO_VIS_MAX / 1000)} km`
+        drawTargetCallout(
+          ctx,
+          12,
+          24,
+          leoLabel,
+          'rgba(0, 40, 55, 0.92)',
+          'rgba(0, 229, 255, 0.95)',
+          '#7ef0ff',
+        )
+      }
     }
 
-    drawAscentPath(
-      ctx,
-      trajectory,
-      telemetry,
-      sx,
-      sy,
-      isMars ? '#ffb020' : '#00e5ff',
-      true,
-    )
+    paint()
 
-    // Frame badge + bold TARGET callout (destination must scream)
-    ctx.font = '600 10px ui-monospace, SFMono-Regular, Menlo, monospace'
-    if (isMars) {
-      ctx.fillStyle = 'rgba(255, 176, 32, 0.7)'
-      ctx.fillText('FRAME · HELIO · HOHMANN XFER', 12, 18)
-      // TARGET · MARS drawn inside drawMarsFrame
-    } else {
-      ctx.fillStyle = 'rgba(0, 229, 255, 0.55)'
-      ctx.fillText('FRAME · EARTH · DOWNRANGE / ALT', 12, 18)
-      const leoLabel = `TARGET · LEO ${Math.round(LEO_ALT_MIN / 1000)}–${Math.round(LEO_VIS_MAX / 1000)} km`
-      drawTargetCallout(
-        ctx,
-        12,
-        24,
-        leoLabel,
-        'rgba(0, 40, 55, 0.92)',
-        'rgba(0, 229, 255, 0.95)',
-        '#7ef0ff',
-      )
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => paint()) : null
+    ro?.observe(parent)
+    window.addEventListener('resize', paint)
+    return () => {
+      ro?.disconnect()
+      window.removeEventListener('resize', paint)
     }
   }, [trajectory, target, telemetry])
 

@@ -124,7 +124,8 @@ input {
 .main-stage {
   min-height: 0;
   display: grid;
-  grid-template-rows: minmax(120px, 1fr) auto;
+  /* Trajectory owns most of the above-controls height; telemetry can shrink/scroll */
+  grid-template-rows: minmax(240px, 2fr) minmax(0, 0.55fr);
   gap: 10px;
   overflow-y: auto;
   overflow-x: hidden;
@@ -136,7 +137,7 @@ input {
 
 .traj-wrap {
   position: relative;
-  min-height: 120px;
+  min-height: 240px;
   border-radius: 14px;
   border: 1px solid var(--border);
   background: var(--bg-panel);
@@ -155,7 +156,12 @@ input {
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 10px;
-  flex-shrink: 0;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(139, 147, 167, 0.35) transparent;
 }
 
 .phase-badge {
@@ -461,31 +467,42 @@ input {
   padding: 4px 0 0;
 }
 
-/* Tall phones: give trajectory more room */
-@media (min-height: 780px) {
+/* Desktop / tall viewports: even more generous trajectory height */
+@media (min-height: 900px) {
   .main-stage {
-    grid-template-rows: minmax(180px, 1.2fr) auto;
+    grid-template-rows: minmax(320px, 2.4fr) minmax(0, 0.45fr);
   }
 
   .traj-wrap {
-    min-height: 160px;
+    min-height: 300px;
   }
 }
 
-/* ~390x844 and shorter: compress middle, keep controls thumb-reachable */
+/* Tall phones (~390×844+): trajectory still dominates above controls */
+@media (min-height: 780px) and (max-height: 899px) {
+  .main-stage {
+    grid-template-rows: minmax(260px, 2fr) minmax(0, 0.5fr);
+  }
+
+  .traj-wrap {
+    min-height: 250px;
+  }
+}
+
+/* ~390×844 and shorter: prefer taller traj; telemetry shrinks/scrolls */
 @media (max-height: 860px) {
   .app-shell {
-    gap: 12px;
+    gap: 10px;
     padding-bottom: calc(12px + var(--safe-bottom));
   }
 
   .main-stage {
-    grid-template-rows: minmax(100px, 0.85fr) auto;
-    gap: 10px;
+    grid-template-rows: minmax(220px, 1.9fr) minmax(0, 0.5fr);
+    gap: 8px;
   }
 
   .traj-wrap {
-    min-height: 100px;
+    min-height: 220px;
   }
 
   .telemetry {
@@ -518,12 +535,14 @@ input {
   }
 }
 
+/* Short phones: keep traj majority; telem scrolls inside panel */
 @media (max-height: 720px) {
   .main-stage {
-    grid-template-rows: minmax(80px, 0.7fr) auto;
+    grid-template-rows: minmax(180px, 1.7fr) minmax(0, 0.45fr);
+    gap: 8px;
   }
 
   .traj-wrap {
-    min-height: 80px;
+    min-height: 180px;
   }
 }

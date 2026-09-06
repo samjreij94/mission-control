@@ -231,6 +231,12 @@ class Sim implements SimAPI {
 
   setThrottle(throttle: number): void {
     this.s.throttle = clamp(throttle, 0, 1);
+    // UI MECO calls setThrottle(0) only — must enter coast so burn controls unlock.
+    if (this.s.throttle === 0 && this.s.phase === 'ascent' && this.s.t > 0) {
+      this.s.enginesOn = false;
+      this.s.phase = 'coast';
+      this.s.message = 'MECO — coasting. Use burn() to circularize.';
+    }
   }
 
   ignite(): void {
@@ -331,10 +337,14 @@ class Sim implements SimAPI {
       if (s.phase === 'ascent') s.phase = 'coast';
     }
 
-    // Cut engines when throttle zero during ascent → coast
-    if (!s.enginesOn && s.phase === 'ascent' && s.t > 0) {
+    // MECO / throttle-cut during ascent → coast (do not require enginesOn already false;
+    // UI only calls setThrottle(0) and may leave enginesOn true until this step).
+    if (s.phase === 'ascent' && s.t > 0 && (s.throttle === 0 || !s.enginesOn)) {
+      s.enginesOn = false;
       s.phase = 'coast';
-      s.message = 'Coast — use burn() to circularize or continue coasting.';
+      if (!s.message.startsWith('MECO — propellant depleted')) {
+        s.message = 'MECO — coasting. Use burn() to circularize.';
+      }
     }
 
     let ar = -g;

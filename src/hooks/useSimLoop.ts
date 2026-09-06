@@ -17,6 +17,8 @@ export function useSimLoop() {
   const [throttle, setThrottleState] = useState(1)
   const [armed, setArmed] = useState(false)
   const armedRef = useRef(false)
+  /** Mirrors React throttle for rAF compares (avoids stale closures). */
+  const throttleRef = useRef(1)
   const lastTs = useRef<number | null>(null)
   const running = useRef(true)
   const lastUi = useRef(0)
@@ -40,6 +42,12 @@ export function useSimLoop() {
         lastUi.current = ts
         setTelemetry(telem)
         setTrajectory(sim.getTrajectory())
+        // Sync slider when physics auto-zeros throttle (autopilot MECO) without
+        // calling sim.setThrottle — that would re-enter MECO / coast logic.
+        if (throttleRef.current !== telem.throttle) {
+          throttleRef.current = telem.throttle
+          setThrottleState(telem.throttle)
+        }
       }
       raf = requestAnimationFrame(loop)
     }
@@ -57,6 +65,7 @@ export function useSimLoop() {
     setTarget(next)
     armedRef.current = false
     setArmed(false)
+    throttleRef.current = 1
     setThrottleState(1)
     sim.setThrottle(1)
     setTelemetry(sim.getTelemetry())
@@ -65,6 +74,7 @@ export function useSimLoop() {
   }, [])
 
   const setThrottle = useCallback((v: number) => {
+    throttleRef.current = v
     setThrottleState(v)
     simRef.current!.setThrottle(v)
   }, [])
@@ -89,6 +99,7 @@ export function useSimLoop() {
 
   const meco = useCallback(() => {
     simRef.current!.setThrottle(0)
+    throttleRef.current = 0
     setThrottleState(0)
   }, [])
 

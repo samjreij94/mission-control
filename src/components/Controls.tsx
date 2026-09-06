@@ -1,7 +1,33 @@
 import type { MissionTarget, Telemetry } from '../physics'
+import { LEO_ALT_MAX, LEO_ALT_MIN, LEO_ECC_MAX } from '../physics'
 
 /** Treat remaining ΔV below this (m/s) as depleted for UI gating. */
 const DV_DEPLETED_EPS_MS = 1
+
+/**
+ * Mirror physics `checkLeoOrbit` / TMI park gate using Controls telemetry.
+ * True when already in orbit/transfer, or peri/apo/ecc look like LEO parking.
+ */
+function isLeoParked(t: Telemetry): boolean {
+  if (t.phase === 'orbit' || t.phase === 'transfer') return true
+
+  const peri = t.periapsisM
+  if (peri == null || !Number.isFinite(peri) || peri < LEO_ALT_MIN || peri <= 0) {
+    return false
+  }
+
+  const apo = t.apoapsisM
+  if (apo != null && Number.isFinite(apo) && apo > LEO_ALT_MAX) {
+    return false
+  }
+
+  const e = t.eccentricity
+  if (e != null && Number.isFinite(e) && e > LEO_ECC_MAX) {
+    return false
+  }
+
+  return true
+}
 
 interface Props {
   telemetry: Telemetry
@@ -47,6 +73,33 @@ export function Controls({
   const dvRemaining = telemetry.deltaVRemainingMs ?? 0
   const dvDepleted = dvRemaining < DV_DEPLETED_EPS_MS
   const canDoBurn = !dvDepleted
+
+  const leoParked = isLeoParked(telemetry)
+  // Small circularization (ΔV 100) stays available; TMI + larger ΔV wait for LEO parking.
+  const canDoBigBurn = canDoBurn && leoParked
+  const canDoTmi = canDoBurn && leoParked
+
+  const smallBurnTitle = dvDepleted ? 'No ΔV remaining' : undefined
+  const bigBurnTitle = dvDepleted
+    ? 'No ΔV remaining'
+    : !leoParked
+      ? 'Reach LEO parking (peri≥160 km) first'
+      : undefined
+  const tmiTitle = dvDepleted
+    ? 'No ΔV remaining'
+    : !leoParked
+      ? 'Reach LEO parking (peri≥160 km) for TMI'
+      : undefined
+
+  let burnGateHint: string | null = null
+  if (dvDepleted) {
+    burnGateHint = 'No ΔV remaining'
+  } else if (!leoParked) {
+    burnGateHint =
+      target === 'MARS_TRANSFER'
+        ? 'Reach LEO parking (peri≥160 km) for TMI'
+        : 'Reach LEO parking (peri≥160 km) for larger ΔV'
+  }
 
   return (
     <section className="controls" aria-label="Launch controls">
@@ -131,7 +184,7 @@ export function Controls({
               onClick={() => onBurn(100)}
               disabled={!canDoBurn}
               aria-disabled={!canDoBurn}
-              title={dvDepleted ? 'No ΔV remaining' : undefined}
+              title={smallBurnTitle}
             >
               ΔV 100
             </button>
@@ -139,9 +192,9 @@ export function Controls({
               type="button"
               className="btn burn"
               onClick={() => onBurn(300)}
-              disabled={!canDoBurn}
-              aria-disabled={!canDoBurn}
-              title={dvDepleted ? 'No ΔV remaining' : undefined}
+              disabled={!canDoBigBurn}
+              aria-disabled={!canDoBigBurn}
+              title={bigBurnTitle}
             >
               ΔV 300
             </button>
@@ -150,9 +203,9 @@ export function Controls({
                 type="button"
                 className="btn burn primary"
                 onClick={() => onBurn(tmiDv)}
-                disabled={!canDoBurn}
-                aria-disabled={!canDoBurn}
-                title={dvDepleted ? 'No ΔV remaining' : undefined}
+                disabled={!canDoTmi}
+                aria-disabled={!canDoTmi}
+                title={tmiTitle}
               >
                 TMI {Math.round(tmiDv)}
               </button>
@@ -162,16 +215,16 @@ export function Controls({
                 type="button"
                 className="btn burn primary"
                 onClick={() => onBurn(500)}
-                disabled={!canDoBurn}
-                aria-disabled={!canDoBurn}
-                title={dvDepleted ? 'No ΔV remaining' : undefined}
+                disabled={!canDoBigBurn}
+                aria-disabled={!canDoBigBurn}
+                title={bigBurnTitle}
               >
                 ΔV 500
               </button>
             )}
-            {dvDepleted && (
+            {burnGateHint && (
               <div className="burn-gate-hint" role="status">
-                No ΔV remaining
+                {burnGateHint}
               </div>
             )}
           </>

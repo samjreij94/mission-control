@@ -405,6 +405,108 @@ describe('SimAPI', () => {
     expect(tel.phase).not.toBe('failed');
   });
 
+
+  it('UI LEO path: hold throttle 100% (no manual MECO) → autopilot coast → burn → SUCCESS', () => {
+    const sim = createSim();
+    sim.reset('LEO');
+    sim.setThrottle(1);
+    sim.ignite();
+
+    // Browser-faithful: only step() — do not call setThrottle(0) / MECO yourself.
+    // useSimLoop uses ~0.05s * 2 = 0.1s physics dt.
+    let tel = sim.getTelemetry();
+    for (let i = 0; i < 15000; i++) {
+      tel = sim.step(0.1);
+      if (tel.phase === 'coast' || tel.phase === 'orbit' || tel.phase === 'failed') break;
+    }
+    expect(tel.phase).not.toBe('failed');
+    expect(tel.phase === 'coast' || tel.phase === 'orbit').toBe(true);
+    expect(tel.phase).not.toBe('ascent');
+    expect(tel.message).toMatch(/Autopilot MECO|SUCCESS|coast/i);
+    expect(tel.deltaVRemainingMs).toBeGreaterThan(100);
+    expect(tel.throttle).toBe(0);
+
+    // Coast toward apoapsis (UI just waits / keeps stepping)
+    for (let i = 0; i < 3000; i++) {
+      if (tel.phase === 'orbit' || tel.phase === 'failed') break;
+      tel = sim.step(0.5);
+      if ((tel.apoapsisM ?? 0) > 100_000 && tel.altitudeM >= (tel.apoapsisM ?? 0) - 5_000) break;
+    }
+    expect(tel.phase).not.toBe('failed');
+    // Peri should still be improvable with burns
+    expect(tel.deltaVRemainingMs).toBeGreaterThan(100);
+
+    // UI burn buttons only: ΔV 100 | 300 | 500
+    for (let b = 0; b < 60; b++) {
+      if (tel.phase === 'orbit' || tel.phase === 'failed') break;
+      if (tel.deltaVRemainingMs < 1) break;
+      const rem = tel.deltaVRemainingMs;
+      const pick = rem >= 500 ? 500 : rem >= 300 ? 300 : 100;
+      sim.burn(pick);
+      tel = sim.getTelemetry();
+      for (let i = 0; i < 5; i++) {
+        if (tel.phase === 'orbit' || tel.phase === 'failed') break;
+        tel = sim.step(0.2);
+      }
+    }
+
+    expect(tel.phase).toBe('orbit');
+    expect(tel.message).toMatch(/SUCCESS/i);
+    expect(tel.periapsisM ?? 0).toBeGreaterThanOrEqual(160_000);
+    expect(tel.deltaVRemainingMs).toBeGreaterThan(100);
+  });
+
+  it('UI Mars path: autopilot MECO → burn 100/300 → TMI transfer', () => {
+    const sim = createSim();
+    sim.reset('MARS_TRANSFER');
+    sim.setThrottle(1);
+    sim.ignite();
+
+    let tel = sim.getTelemetry();
+    for (let i = 0; i < 15000; i++) {
+      tel = sim.step(0.1);
+      if (tel.phase === 'coast' || tel.phase === 'orbit' || tel.phase === 'failed') break;
+    }
+    expect(tel.phase).not.toBe('failed');
+    expect(tel.phase === 'coast' || tel.phase === 'orbit').toBe(true);
+    expect(tel.deltaVRemainingMs).toBeGreaterThan(100);
+    expect(tel.message).toMatch(/Autopilot MECO|parking|coast/i);
+
+    for (let i = 0; i < 3000; i++) {
+      if (tel.phase === 'orbit' || tel.phase === 'failed') break;
+      tel = sim.step(0.5);
+      if ((tel.apoapsisM ?? 0) > 100_000 && tel.altitudeM >= (tel.apoapsisM ?? 0) - 5_000) break;
+    }
+    expect(tel.phase).not.toBe('failed');
+
+    // UI Mars burn buttons: ΔV 100 | 300 (then TMI)
+    for (let b = 0; b < 60; b++) {
+      if (tel.phase === 'orbit' || tel.phase === 'failed') break;
+      if (tel.deltaVRemainingMs < 1) break;
+      const rem = tel.deltaVRemainingMs;
+      const pick = rem >= 300 ? 300 : 100;
+      sim.burn(pick);
+      tel = sim.getTelemetry();
+      for (let i = 0; i < 5; i++) {
+        if (tel.phase === 'orbit' || tel.phase === 'failed') break;
+        tel = sim.step(0.2);
+      }
+    }
+
+    expect(tel.phase === 'orbit' || (tel.periapsisM ?? 0) >= 160_000).toBe(true);
+    expect(tel.deltaVRemainingMs).toBeGreaterThan(0);
+
+    const h = hohmannTransfer();
+    sim.burn(h.deltaVDepart);
+    tel = sim.getTelemetry();
+    expect(tel.phase).toBe('transfer');
+    expect(tel.message).toMatch(/TMI|SUCCESS/i);
+
+    for (let i = 0; i < 40; i++) tel = sim.step(0.5);
+    expect(tel.phase).toBe('transfer');
+    expect(tel.phase).not.toBe('failed');
+  });
+
   it('LEO: peri≳150 km & apo in band yields orbit SUCCESS', () => {
     const sim = createSim();
     sim.reset('LEO', {

@@ -60,7 +60,7 @@ input {
     calc(12px + var(--safe-right))
     calc(10px + var(--safe-bottom))
     calc(12px + var(--safe-left));
-  gap: 8px;
+  gap: 12px;
   background:
     radial-gradient(120% 60% at 50% -10%, rgba(0, 229, 255, 0.08), transparent 55%),
     radial-gradient(80% 40% at 100% 100%, rgba(255, 176, 32, 0.05), transparent 50%),
@@ -124,13 +124,19 @@ input {
 .main-stage {
   min-height: 0;
   display: grid;
-  grid-template-rows: minmax(180px, 1fr) auto;
-  gap: 8px;
+  grid-template-rows: minmax(120px, 1fr) auto;
+  gap: 10px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(139, 147, 167, 0.35) transparent;
 }
 
 .traj-wrap {
   position: relative;
-  min-height: 0;
+  min-height: 120px;
   border-radius: 14px;
   border: 1px solid var(--border);
   background: var(--bg-panel);
@@ -149,6 +155,7 @@ input {
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 10px;
+  flex-shrink: 0;
 }
 
 .phase-badge {
@@ -276,7 +283,12 @@ input {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.35);
+  flex-shrink: 0;
+  position: relative;
+  z-index: 2;
+  box-shadow:
+    0 -10px 28px rgba(0, 0, 0, 0.4),
+    0 0 0 1px rgba(0, 229, 255, 0.04);
 }
 
 .ctrl-label {
@@ -433,8 +445,69 @@ input {
   padding: 4px 0 0;
 }
 
+/* Tall phones: give trajectory more room */
 @media (min-height: 780px) {
   .main-stage {
-    grid-template-rows: minmax(240px, 1.2fr) auto;
+    grid-template-rows: minmax(180px, 1.2fr) auto;
+  }
+
+  .traj-wrap {
+    min-height: 160px;
+  }
+}
+
+/* ~390x844 and shorter: compress middle, keep controls thumb-reachable */
+@media (max-height: 860px) {
+  .app-shell {
+    gap: 12px;
+    padding-bottom: calc(12px + var(--safe-bottom));
+  }
+
+  .main-stage {
+    grid-template-rows: minmax(100px, 0.85fr) auto;
+    gap: 10px;
+  }
+
+  .traj-wrap {
+    min-height: 100px;
+  }
+
+  .telemetry {
+    padding: 8px;
+  }
+
+  .telem-grid {
+    gap: 5px;
+  }
+
+  .telem-cell {
+    padding: 6px 8px;
+  }
+
+  .telem-value {
+    font-size: 14px;
+  }
+
+  .telem-message {
+    margin-bottom: 6px;
+  }
+
+  .phase-badge {
+    margin-bottom: 6px;
+  }
+
+  .controls {
+    padding: 10px;
+    gap: 10px;
+  }
+}
+
+@media (max-height: 720px) {
+  .main-stage {
+    grid-template-rows: minmax(80px, 0.7fr) auto;
+  }
+
+  .traj-wrap {
+    min-height: 80px;
   }
 }

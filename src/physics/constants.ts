@@ -38,8 +38,18 @@ export const LEO_ALT_MIN = 160_000;
 export const LEO_ALT_MAX = 2_000_000;
 export const LEO_ECC_MAX = 0.15;
 
-/** Default vehicle — Falcon-9-ish single-stack for playability. */
+/**
+ * Default vehicle — single-stage Falcon-9-ish stack tuned for playable LEO.
+ *
+ * Masses: wet 550 t / dry 25 t → propellant fraction ≈ 0.955.
+ * Isp 340 s is a mission-average (SL Merlin ~282 s blended toward vac ~311–348 s),
+ * not a single engine rating. Ideal Δv = Isp g0 ln(m0/mf) ≈ 10.3 km/s — enough for
+ * LEO + gravity/drag losses with circularization margin; Mars TMI is a heliocentric
+ * handoff that debits remaining propellant after parking.
+ *
+ * Liftoff TWR ≈ 7.6e6 / (550e3 * g0) ≈ 1.41 (> 1.2).
+ */
 export const DEFAULT_WET_MASS = 550_000; // kg
-export const DEFAULT_DRY_MASS = 50_000; // kg (structure + residual + payload)
-export const DEFAULT_ISP = 300; // s (sea-level-ish average)
+export const DEFAULT_DRY_MASS = 25_000; // kg (structure + residual + payload)
+export const DEFAULT_ISP = 340; // s — mission-average (vac-biased), not SL-only
 export const DEFAULT_THRUST = 7.6e6; // N (~7600 kN)

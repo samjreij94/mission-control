@@ -21,7 +21,7 @@ export interface Vehicle {
   /** Drag coefficient (default CD_REF). */
   cd?: number;
   /** Reference cross-section area m2 (default AREA_REF). */
-  areAM2?: number;
+  areaM2?: number;
 }
 
 export interface Telemetry {

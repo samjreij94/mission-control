@@ -27,7 +27,7 @@ export function semiMajorAxis(energy: number, mu: number): number {
 }
 
 export function eccentricityFromState(state: OrbitalState, mu: number): number {
-  const { r, v, vr, vt } = state;
+  const { r, v, vt } = state;
   // e = |e_vec|, e_vec = ((v²−μ/r)r − (r·v)v) / μ
   // With polar components: h = r * vt, e² = 1 + (2ε h²)/μ²
   const h = r * vt;
